@@ -1,5 +1,3 @@
-app = "your-unique-bot-manager-name"
-primary_region = "iad" # Change to your preferred region (e.g., ams, cdg, lax)
 
 [build]
   # Fly will automatically use the Dockerfile in the directory
