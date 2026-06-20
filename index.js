@@ -6,37 +6,29 @@ const HOST = '89.144.32.248';
 const PORT = 1033;
 let activeBots = [];
 
-// --- Helper: Delay ---
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
 async function spawnBots(amount, ws) {
-    const BATCH_SIZE = 5;
-    const BATCH_DELAY = 1000;
-    const INDIVIDUAL_DELAY = 300; // Faster direct connection
+    ws.send(JSON.stringify({action:'log', message:`[*] Spawning ${amount} bots instantly...`}));
+    
+    for (let i = 0; i < amount; i++) {
+        const bot = mineflayer.createBot({
+            host: HOST, 
+            port: PORT,
+            version: '1.21.5',
+            username: `B_${Math.floor(Math.random()*9999)}`,
+            hideErrors: true
+        });
 
-    for (let i = 0; i < amount; i += BATCH_SIZE) {
-        ws.send(JSON.stringify({action:'log', message:`[*] Starting batch ${i / BATCH_SIZE + 1}...`}));
-        
-        for (let j = 0; j < BATCH_SIZE && (i + j) < amount; j++) {
-            const bot = mineflayer.createBot({
-                host: HOST, 
-                port: PORT,
-                version: '1.21.5',
-                username: `B_${Math.floor(Math.random()*9999)}`,
-                hideErrors: true
-            });
+        bot.once('spawn', () => {
+            activeBots.push(bot);
+            ws.send(JSON.stringify({action:'log', message:`[+] ${bot.username} connected.`}));
+            
+            // Registration Sequence
+            bot.chat('/register Fg4SD#cXz');
+            bot.chat('/register Fg4SD#cXz Fg4SD#cXz');
+            setTimeout(() => bot.chat('/login Fg4SD#cXz'), 300);
+        });
 
-            bot.once('spawn', () => {
-                activeBots.push(bot);
-                ws.send(JSON.stringify({action:'log', message:`[+] ${bot.username} connected.`}));
-                setTimeout(() => bot.chat('/register Fg4SD#cXz Fg4SD#cXz'), 500);
-                setTimeout(() => bot.chat('/login Fg4SD#cXz'), 1000);
-            });
-
-            bot.on('end', () => activeBots = activeBots.filter(b => b !== bot));
-            await delay(INDIVIDUAL_DELAY);
-        }
-        await delay(BATCH_DELAY);
+        bot.on('end', () => activeBots = activeBots.filter(b => b !== bot));
     }
 }
 
@@ -52,9 +44,9 @@ const server = http.createServer((req, res) => {
             #console{height:200px; background:#000; overflow-y:auto; font-family:monospace; font-size:11px; padding:10px; border-radius:6px;}
         </style></head><body>
             <div class="card">
-                <h2>Direct Bot Manager</h2>
+                <h2>Instant Bot Manager</h2>
                 <input type="number" id="amt" value="5">
-                <button onclick="send('join', document.getElementById('amt').value)">SPAWN BATCH</button>
+                <button onclick="send('join', document.getElementById('amt').value)">SPAWN INSTANT</button>
                 <input type="text" id="chat" placeholder="Broadcast message...">
                 <button onclick="send('chat', document.getElementById('chat').value)">BROADCAST</button>
                 <button style="background:#dc2626" onclick="send('leave')">QUIT ALL</button>
