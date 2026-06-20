@@ -8,10 +8,10 @@ const HOST = '89.144.32.248';
 const PORT = 1033;
 let activeBots = [];
 
-// Generate an RSA key on-the-fly for the SSH server (No external files needed)
+// Generate an RSA key on-the-fly for the SSH server 
 const { privateKey } = crypto.generateKeyPairSync('rsa', {
   modulusLength: 2048,
-  privateKeyEncoding: { type: 'pkcs1', format: 'pem' } // <-- Changed 'pkcs8' to 'pkcs1'
+  privateKeyEncoding: { type: 'pkcs1', format: 'pem' } 
 });
 
 // --- Bot Management ---
@@ -36,9 +36,9 @@ function spawnBots(amount, stream) {
         activeBots = activeBots.filter(b => b.username !== bot.username);
       });
 
-      bot.on('error', () => { /* Ignore errors in console to keep terminal clean */ });
+      bot.on('error', () => { /* Prevent crash if bot gets kicked immediately */ });
 
-    }, i * 2000); // 2 second delay between joins to prevent throttling
+    }, i * 2000); 
   }
 }
 
@@ -48,12 +48,18 @@ const sshServer = new Server({
 }, (client) => {
   console.log('Client connected to SSH!');
 
+  // FIX 1: Catch client socket errors so an abrupt PuTTY disconnect never crashes the app
+  client.on('error', (err) => {
+    console.log(`[SSH] Client connection error caught: ${err.message}`);
+  });
+
   client.on('authentication', (ctx) => {
     // You asked for root:root!
     if (ctx.method === 'password' && ctx.username === 'root' && ctx.password === 'root') {
       ctx.accept();
     } else {
-      ctx.reject();
+      // FIX 2: Explicitly tell PuTTY that 'password' is the supported login method
+      ctx.reject(['password']);
     }
   });
 
@@ -69,7 +75,7 @@ const sshServer = new Server({
         const stream = accept();
         let inputBuffer = '';
 
-        // The "Nice Design" ASCII Banner
+        // Design Banner
         const banner = `\r
 \x1b[36m
   ██████╗ ██████╗ ████████╗███╗   ██╗███████╗████████╗
@@ -89,7 +95,6 @@ Type \x1b[33mhelp\x1b[0m for commands.
         stream.on('data', (data) => {
           const char = data.toString();
 
-          // Handle Enter key (execute command)
           if (char === '\r' || char === '\n') {
             stream.write('\r\n');
             const args = inputBuffer.trim().split(' ');
@@ -128,14 +133,12 @@ Type \x1b[33mhelp\x1b[0m for commands.
             inputBuffer = '';
             stream.write('\r\nroot@botnet:~# ');
           } 
-          // Handle Backspace
           else if (char === '\x7F' || char === '\b') {
             if (inputBuffer.length > 0) {
               inputBuffer = inputBuffer.slice(0, -1);
-              stream.write('\b \b'); // Erase visual character
+              stream.write('\b \b'); 
             }
           } 
-          // Type characters normally
           else {
             inputBuffer += char;
             stream.write(char);
@@ -144,8 +147,12 @@ Type \x1b[33mhelp\x1b[0m for commands.
       });
     });
   });
-}).listen(4242, () => {
-  console.log('SSH Control Server running on port 4242');
+});
+
+// Reverted back to your original setup without 0.0.0.0
+const sshPort = process.env.SSH_PORT || 4242;
+sshServer.listen(sshPort, () => {
+  console.log(`SSH Control Server running on port ${sshPort}`);
 });
 
 // --- Railway Health Check Server ---
