@@ -1,26 +1,17 @@
 const mineflayer = require('mineflayer');
 const http = require('http');
-const { Server } = require('ssh2');
-const crypto = require('crypto');
+const WebSocket = require('ws');
 
-// --- Configuration (Replace placeholders with your actual server details) ---
-const HOST = '89.144.32.248'; 
-const PORT = 1033; 
+// --- Configuration ---
+const HOST = '89.144.32.248';
+const PORT = 1033;
 let activeBots = [];
 
-// Generate RSA key for the SSH server
-const { privateKey } = crypto.generateKeyPairSync('rsa', {
-  modulusLength: 2048,
-  privateKeyEncoding: { type: 'pkcs1', format: 'pem' } 
-});
-
 // --- Bot Management ---
-function spawnBots(amount, stream) {
-  stream.write(`\r\n\x1b[33m[*] Attempting to join ${amount} bots to ${HOST}:${PORT}...\x1b[0m\r\n`);
+function spawnBots(amount, ws) {
+  sendLogs(ws, `[*] Attempting to join ${amount} bots to ${HOST}:${PORT}...`, 'info');
   
   for (let i = 0; i < amount; i++) {
-    // ADJUST SPEED HERE: Changed from 2000ms to 500ms for faster sequential entry.
-    // Reduce further (e.g., 200) if your server's connection-throttle allows it.
     setTimeout(() => {
       const botName = `Bot_${Math.random().toString(36).substring(2, 6)}`;
       const bot = mineflayer.createBot({
@@ -29,27 +20,20 @@ function spawnBots(amount, stream) {
         username: botName
       });
 
-      // Use .once to ensure the login sequence only fires on the initial join
       bot.once('spawn', () => {
-        stream.write(`\r\n\x1b[32m[+] ${botName} spawned successfully!\x1b[0m\r\n`);
+        sendLogs(ws, `[+] ${botName} spawned successfully!`, 'success');
         activeBots.push(bot);
+        updateStatus(ws);
 
-        // Auto-run authentication commands with slight delays to avoid spam filters
-        setTimeout(() => {
-          if (bot.isValid) bot.chat('/register Fg4SD#cXz');
-        }, 500);
-
-        setTimeout(() => {
-          if (bot.isValid) bot.chat('/register Fg4SD#cXz Fg4SD#cXz');
-        }, 1000);
-
-        setTimeout(() => {
-          if (bot.isValid) bot.chat('/login Fg4SD#cXz');
-        }, 1500);
+        // Auto-run authentication sequence
+        setTimeout(() => { if (bot.isValid) bot.chat('/register Fg4SD#cXz'); }, 500);
+        setTimeout(() => { if (bot.isValid) bot.chat('/register Fg4SD#cXz Fg4SD#cXz'); }, 1000);
+        setTimeout(() => { if (bot.isValid) bot.chat('/login Fg4SD#cXz'); }, 1500);
       });
 
       bot.on('end', () => {
         activeBots = activeBots.filter(b => b.username !== bot.username);
+        updateStatus(ws);
       });
 
       bot.on('error', () => { /* Handle silent errors */ });
@@ -58,121 +42,130 @@ function spawnBots(amount, stream) {
   }
 }
 
-// --- SSH Server ---
-const sshServer = new Server({
-  hostKeys: [privateKey]
-}, (client) => {
-  console.log('Client connected to SSH!');
+// Helper functions to push real-time updates to the browser
+function sendLogs(ws, message, type = 'default') {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ action: 'log', message, type }));
+  }
+}
 
-  client.on('error', (err) => {
-    console.log(`[SSH] Client connection error caught: ${err.message}`);
-  });
+function updateStatus(ws) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ action: 'status', count: activeBots.length }));
+  }
+}
 
-  client.on('authentication', (ctx) => {
-    if (ctx.method === 'password' && ctx.username === 'root' && ctx.password === 'root') {
-      ctx.accept();
-    } else {
-      ctx.reject(['password']);
+// --- HTTP Server ---
+// Serves the interface HTML page directly to your web browser
+const server = http.createServer((req, res) => {
+  if (req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Control Terminal</title>
+        <style>
+          body { font-family: monospace; background: #121212; color: #e0e0e0; padding: 20px; }
+          .container { max-width: 800px; margin: 0 auto; }
+          .card { background: #1e1e1e; padding: 20px; border-radius: 5px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+          input, button { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 10px; font-family: monospace; border-radius: 3px; }
+          button { cursor: pointer; background: #007acc; }
+          button:hover { background: #0062a3; }
+          .btn-danger { background: #a31515; }
+          .btn-danger:hover { background: #7a1010; }
+          #console { background: #000; height: 300px; overflow-y: auto; padding: 10px; border-radius: 3px; border: 1px solid #333; margin-top: 15px; }
+          .info { color: #cca700; }
+          .success { color: #4ec9b0; }
+          .danger { color: #f44747; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h2>Instance Web Manager</h2>
+          <div class="card">
+            <h3>Active Connections: <span id="count">0</span></h3>
+            <input type="number" id="amount" placeholder="Amount" value="5" style="width: 80px;">
+            <button onclick="sendAction('join', document.getElementById('amount').value)">Spawn Bots</button>
+            <button class="btn-danger" onclick="sendAction('leave')">Disconnect All</button>
+          </div>
+          <div class="card">
+            <input type="text" id="chatMsg" placeholder="Global message..." style="width: 70%;">
+            <button onclick="sendAction('chat', document.getElementById('chatMsg').value)">Broadcast Chat</button>
+          </div>
+          <div class="card">
+            <h3>Console Output</h3>
+            <div id="console"></div>
+          </div>
+        </div>
+
+        <script>
+          // Automatically connects the websocket to your current page URL
+          const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+          const socket = new WebSocket(wsProtocol + window.location.host);
+          const consoleDiv = document.getElementById('console');
+
+          socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.action === 'log') {
+              const p = document.createElement('p');
+              p.className = data.type;
+              p.textContent = data.message;
+              consoleDiv.appendChild(p);
+              consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            } else if (data.action === 'status') {
+              document.getElementById('count').textContent = data.count;
+            }
+          };
+
+          function sendAction(action, value = '') {
+            socket.send(JSON.stringify({ action, value }));
+            if (action === 'chat') document.getElementById('chatMsg').value = '';
+          }
+        </script>
+      </body>
+      </html>
+    `);
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
+
+// --- WebSocket Server Routing ---
+const wss = new WebSocket.Server({ server });
+
+wss.on('connection', (ws) => {
+  updateStatus(ws);
+  sendLogs(ws, '[System] Connected to Control WebSocket channel successfully.', 'success');
+
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      
+      if (data.action === 'join') {
+        const amount = parseInt(data.value, 10);
+        if (!isNaN(amount)) spawnBots(amount, ws);
+      } 
+      
+      else if (data.action === 'chat') {
+        activeBots.forEach(bot => bot.chat(data.value));
+        sendLogs(ws, `[Broadcast] sent: "${data.value}" to ${activeBots.length} active instances.`, 'info');
+      } 
+      
+      else if (data.action === 'leave') {
+        activeBots.forEach(bot => bot.quit());
+        activeBots = [];
+        updateStatus(ws);
+        sendLogs(ws, '[-] All active instances disconnected cleanly.', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
     }
   });
-
-  client.on('ready', () => {
-    client.on('session', (accept, reject) => {
-      const session = accept();
-      
-      session.once('pty', (accept, reject, info) => {
-        accept();
-      });
-
-      session.once('shell', (accept, reject) => {
-        const stream = accept();
-        let inputBuffer = '';
-
-        const banner = `\r
-\x1b[36m
-  ██████╗ ██████╗ ████████╗███╗   ██╗███████╗████████╗
-  ██╔══██╗██╔══██╗╚══██╔══╝████╗  ██║██╔════╝╚══██╔══╝
-  ██████╦╝██║  ██║   ██║   ██╔██╗ ██║█████╗     ██║   
-  ██╔══██╗██║  ██║   ██║   ██║╚██╗██║██╔══╝     ██║   
-  ██████╦╝██████╔╝   ██║   ██║ ╚████║███████╗   ██║   
-  ╚═════╝ ╚═════╝    ╚═╝   ╚═╝  ╚═══╝╚══════╝   ╚═╝   
-\x1b[0m
-\x1b[32mWelcome to the Botnet Control Terminal.\x1b[0m
-Type \x1b[33mhelp\x1b[0m for commands.
-
-`;
-        stream.write(banner);
-        stream.write('root@botnet:~# ');
-
-        stream.on('data', (data) => {
-          const char = data.toString();
-
-          if (char === '\r' || char === '\n') {
-            stream.write('\r\n');
-            const args = inputBuffer.trim().split(' ');
-            const command = args[0];
-
-            if (command === 'help') {
-              stream.write('\x1b[36mAvailable Commands:\x1b[0m\r\n');
-              stream.write('  .join <amount>  - Connects X number of bots\r\n');
-              stream.write('  .chat <msg>     - Makes all connected bots say a message\r\n');
-              stream.write('  .leave          - Disconnects all bots\r\n');
-              stream.write('  exit            - Closes this SSH session\r\n');
-            } 
-            else if (command === '.join' && args[1]) {
-              const amount = parseInt(args[1], 10);
-              if (!isNaN(amount)) spawnBots(amount, stream);
-            } 
-            else if (command === '.chat') {
-              const msg = args.slice(1).join(' ');
-              activeBots.forEach(bot => bot.chat(msg));
-              stream.write(`\x1b[32mBroadcasted to ${activeBots.length} bots.\x1b[0m\r\n`);
-            } 
-            else if (command === '.leave') {
-              activeBots.forEach(bot => bot.quit());
-              activeBots = [];
-              stream.write('\x1b[31mAll bots disconnected.\x1b[0m\r\n');
-            } 
-            else if (command === 'exit') {
-              stream.write('Goodbye.\r\n');
-              stream.end();
-              return;
-            } 
-            else if (inputBuffer.length > 0) {
-              stream.write(`\x1b[31mCommand not found: ${command}\x1b[0m\r\n`);
-            }
-
-            inputBuffer = '';
-            stream.write('\r\nroot@botnet:~# ');
-          } 
-          else if (char === '\x7F' || char === '\b') {
-            if (inputBuffer.length > 0) {
-              inputBuffer = inputBuffer.slice(0, -1);
-              stream.write('\b \b'); 
-            }
-          } 
-          else {
-            inputBuffer += char;
-            stream.write(char);
-          }
-        });
-      });
-    });
-  });
-});
-
-const sshPort = process.env.SSH_PORT || 5252;
-sshServer.listen(sshPort, () => {
-  console.log(`SSH Control Server running on port ${sshPort}`);
-});
-
-// --- Railway Health Check Server ---
-const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end(`Botnet is online. Active bots: ${activeBots.length}`);
 });
 
 const webPort = process.env.PORT || 3000;
 server.listen(webPort, () => {
-  console.log(`Dummy web server listening on port ${webPort} for Railway health checks.`);
+  console.log(`Web Management console active on port ${webPort}`);
 });
