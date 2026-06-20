@@ -1,59 +1,157 @@
 const mineflayer = require('mineflayer');
 const http = require('http');
+const { Server } = require('ssh2');
+const crypto = require('crypto');
 
-// Your server details
+// --- Configuration ---
 const HOST = '89.144.32.248';
 const PORT = 1033;
-const BOT_COUNT = 3;
+let activeBots = [];
 
-function createBot(botName) {
-  console.log(`Starting ${botName}...`);
+// Generate an RSA key on-the-fly for the SSH server (No external files needed)
+const { privateKey } = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+});
+
+// --- Bot Management ---
+function spawnBots(amount, stream) {
+  stream.write(`\r\n\x1b[33m[*] Attempting to join ${amount} bots to ${HOST}:${PORT}...\x1b[0m\r\n`);
   
-  const bot = mineflayer.createBot({
-    host: HOST,
-    port: PORT,
-    username: botName,
-    // version: '1.20.4' // Uncomment and change if auto-detect fails
-  });
+  for (let i = 0; i < amount; i++) {
+    setTimeout(() => {
+      const botName = `Bot_${Math.random().toString(36).substring(2, 6)}`;
+      const bot = mineflayer.createBot({
+        host: HOST,
+        port: PORT,
+        username: botName
+      });
 
-  bot.on('spawn', () => {
-    console.log(`${botName} has successfully spawned!`);
-    
-    // NOTE: I see "larpLogin" in your console screenshot. 
-    // If your server is offline-mode, the bots might need to register/login.
-    // Uncomment the line below if they need to send a chat command to authenticate:
-    // bot.chat('/register BotPassword123 BotPassword123'); 
-  });
+      bot.on('spawn', () => {
+        stream.write(`\r\n\x1b[32m[+] ${botName} spawned successfully!\x1b[0m\r\n`);
+        activeBots.push(bot);
+      });
 
-  bot.on('kicked', (reason) => {
-    console.log(`[${botName}] Kicked: ${reason}`);
-  });
+      bot.on('end', () => {
+        activeBots = activeBots.filter(b => b.username !== bot.username);
+      });
 
-  bot.on('error', (err) => {
-    console.log(`[${botName}] Error:`, err);
-  });
+      bot.on('error', () => { /* Ignore errors in console to keep terminal clean */ });
 
-  bot.on('end', () => {
-    console.log(`[${botName}] Disconnected. Attempting to reconnect in 10 seconds...`);
-    setTimeout(() => createBot(botName), 10000);
-  });
+    }, i * 2000); // 2 second delay between joins to prevent throttling
+  }
 }
 
-// Spawn the 3 bots with a slight delay between each to avoid connection throttling
-for (let i = 0; i < BOT_COUNT; i++) {
-  // Generates a random name like "Bot_a1b2c3"
-  const randomName = `Bot_${Math.random().toString(36).substring(2, 8)}`;
-  
-  setTimeout(() => {
-    createBot(randomName);
-  }, i * 3000); // 3-second delay between each bot joining
-}
+// --- SSH Server ---
+const sshServer = new Server({
+  hostKeys: [privateKey]
+}, (client) => {
+  console.log('Client connected to SSH!');
+
+  client.on('authentication', (ctx) => {
+    // You asked for root:root!
+    if (ctx.method === 'password' && ctx.username === 'root' && ctx.password === 'root') {
+      ctx.accept();
+    } else {
+      ctx.reject();
+    }
+  });
+
+  client.on('ready', () => {
+    client.on('session', (accept, reject) => {
+      const session = accept();
+      
+      session.once('pty', (accept, reject, info) => {
+        accept();
+      });
+
+      session.once('shell', (accept, reject) => {
+        const stream = accept();
+        let inputBuffer = '';
+
+        // The "Nice Design" ASCII Banner
+        const banner = `\r
+\x1b[36m
+  ██████╗ ██████╗ ████████╗███╗   ██╗███████╗████████╗
+  ██╔══██╗██╔══██╗╚══██╔══╝████╗  ██║██╔════╝╚══██╔══╝
+  ██████╦╝██║  ██║   ██║   ██╔██╗ ██║█████╗     ██║   
+  ██╔══██╗██║  ██║   ██║   ██║╚██╗██║██╔══╝     ██║   
+  ██████╦╝██████╔╝   ██║   ██║ ╚████║███████╗   ██║   
+  ╚═════╝ ╚═════╝    ╚═╝   ╚═╝  ╚═══╝╚══════╝   ╚═╝   
+\x1b[0m
+\x1b[32mWelcome to the Botnet Control Terminal.\x1b[0m
+Type \x1b[33mhelp\x1b[0m for commands.
+
+`;
+        stream.write(banner);
+        stream.write('root@botnet:~# ');
+
+        stream.on('data', (data) => {
+          const char = data.toString();
+
+          // Handle Enter key (execute command)
+          if (char === '\r' || char === '\n') {
+            stream.write('\r\n');
+            const args = inputBuffer.trim().split(' ');
+            const command = args[0];
+
+            if (command === 'help') {
+              stream.write('\x1b[36mAvailable Commands:\x1b[0m\r\n');
+              stream.write('  .join <amount>  - Connects X number of bots\r\n');
+              stream.write('  .chat <msg>     - Makes all connected bots say a message\r\n');
+              stream.write('  .leave          - Disconnects all bots\r\n');
+              stream.write('  exit            - Closes this SSH session\r\n');
+            } 
+            else if (command === '.join' && args[1]) {
+              const amount = parseInt(args[1], 10);
+              if (!isNaN(amount)) spawnBots(amount, stream);
+            } 
+            else if (command === '.chat') {
+              const msg = args.slice(1).join(' ');
+              activeBots.forEach(bot => bot.chat(msg));
+              stream.write(`\x1b[32mBroadcasted to ${activeBots.length} bots.\x1b[0m\r\n`);
+            } 
+            else if (command === '.leave') {
+              activeBots.forEach(bot => bot.quit());
+              activeBots = [];
+              stream.write('\x1b[31mAll bots disconnected.\x1b[0m\r\n');
+            } 
+            else if (command === 'exit') {
+              stream.write('Goodbye.\r\n');
+              stream.end();
+              return;
+            } 
+            else if (inputBuffer.length > 0) {
+              stream.write(`\x1b[31mCommand not found: ${command}\x1b[0m\r\n`);
+            }
+
+            inputBuffer = '';
+            stream.write('\r\nroot@botnet:~# ');
+          } 
+          // Handle Backspace
+          else if (char === '\x7F' || char === '\b') {
+            if (inputBuffer.length > 0) {
+              inputBuffer = inputBuffer.slice(0, -1);
+              stream.write('\b \b'); // Erase visual character
+            }
+          } 
+          // Type characters normally
+          else {
+            inputBuffer += char;
+            stream.write(char);
+          }
+        });
+      });
+    });
+  });
+}).listen(2222, () => {
+  console.log('SSH Control Server running on port 2222');
+});
 
 // --- Railway Health Check Server ---
-// Railway will kill the container if it doesn't detect an active HTTP port.
 const server = http.createServer((req, res) => {
   res.writeHead(200);
-  res.end('Mineflayer bots are running online!');
+  res.end(`Botnet is online. Active bots: ${activeBots.length}`);
 });
 
 const webPort = process.env.PORT || 3000;
