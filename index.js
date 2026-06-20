@@ -144,8 +144,8 @@ Type \x1b[33mhelp\x1b[0m for commands.
       });
     });
   });
-}).listen(2222, () => {
-  console.log('SSH Control Server running on port 2222');
+}).listen(4242, () => {
+  console.log('SSH Control Server running on port 4242');
 });
 
 // --- Railway Health Check Server ---
