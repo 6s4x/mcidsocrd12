@@ -1,7 +1,4 @@
 
-[build]
-  # Fly will automatically use the Dockerfile in the directory
-
 [[services]]
   internal_port = 3000
   processes = ["app"]
