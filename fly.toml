@@ -1,4 +1,9 @@
+app = "mcidsocrd12"
+primary_region = "fra"
 
+[build]
+
+# 1. Web Service (For Fly Health Checks)
 [[services]]
   internal_port = 3000
   processes = ["app"]
@@ -12,11 +17,12 @@
     handlers = ["tls", "http"]
     port = 443
 
+# 2. PuTTY/SSH Service (For Your Control Panel)
 [[services]]
   internal_port = 4242
   processes = ["app"]
   protocol = "tcp"
 
   [[services.ports]]
-    # This opens raw TCP port 4242 to the public internet for PuTTY
+    # Opens raw TCP port 4242 to the public internet
     port = 4242
