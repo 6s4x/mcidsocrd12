@@ -33,14 +33,18 @@ async function spawnBots(amount, ws) {
         for (let j = 0; j < BATCH_SIZE && (i + j) < amount; j++) {
             const proxyEntry = proxies[(i + j) % proxies.length]?.split(':') || [];
             
-            const bot = mineflayer.createBot({
-                host: HOST, port: PORT,
+const bot = mineflayer.createBot({
+                host: HOST, 
+                port: PORT,
+                version: '1.21.5', // Explicitly set to 1.21.5
                 username: `B_${Math.floor(Math.random()*9999)}`,
-                hideErrors: true, // Prevents Zlib spam
+                hideErrors: true, 
                 connect: (proxyEntry.length === 2) ? (client) => {
                     SocksClient.createConnection({
                         proxy: { host: proxyEntry[0], port: parseInt(proxyEntry[1]), type: 5 },
-                        destination: { host: HOST, port: PORT }, command: 'connect', timeout: 5000
+                        destination: { host: HOST, port: PORT }, 
+                        command: 'connect', 
+                        timeout: 5000
                     }, (err, info) => {
                         if (err) return;
                         client.setSocket(info.socket);
