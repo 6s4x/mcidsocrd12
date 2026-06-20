@@ -7,6 +7,7 @@ const axios = require('axios');
 const HOST = '89.144.32.248';
 const PORT = 1033;
 const PROXY_URL = 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt';
+
 let activeBots = [];
 let proxies = [];
 
@@ -19,7 +20,6 @@ async function updateProxyList() {
 }
 updateProxyList();
 
-// --- Helper: Delay ---
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function spawnBots(amount, ws) {
@@ -34,11 +34,13 @@ async function spawnBots(amount, ws) {
             const proxyEntry = proxies[(i + j) % proxies.length]?.split(':') || [];
             
             const bot = mineflayer.createBot({
-                host: HOST, port: PORT, username: `B_${Math.floor(Math.random()*10000)}`,
+                host: HOST, port: PORT,
+                username: `B_${Math.floor(Math.random()*9999)}`,
+                hideErrors: true, // Prevents Zlib spam
                 connect: (proxyEntry.length === 2) ? (client) => {
                     SocksClient.createConnection({
                         proxy: { host: proxyEntry[0], port: parseInt(proxyEntry[1]), type: 5 },
-                        destination: { host: HOST, port: PORT }, command: 'connect'
+                        destination: { host: HOST, port: PORT }, command: 'connect', timeout: 5000
                     }, (err, info) => {
                         if (err) return;
                         client.setSocket(info.socket);
@@ -50,18 +52,17 @@ async function spawnBots(amount, ws) {
             bot.once('spawn', () => {
                 activeBots.push(bot);
                 ws.send(JSON.stringify({action:'log', message:`[+] ${bot.username} joined.`}));
-                setTimeout(() => bot.chat('/register Fg4SD#cXz'), 500);
-                setTimeout(() => bot.chat('/register Fg4SD#cXz Fg4SD#cXz'), 1000);
-                setTimeout(() => bot.chat('/login Fg4SD#cXz'), 1500);
+                setTimeout(() => bot.chat('/register Fg4SD#cXz Fg4SD#cXz'), 500);
+                setTimeout(() => bot.chat('/login Fg4SD#cXz'), 1000);
             });
 
+            bot.on('end', () => activeBots = activeBots.filter(b => b !== bot));
             await delay(INDIVIDUAL_DELAY);
         }
         await delay(BATCH_DELAY);
     }
 }
 
-// --- UI Server ---
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`
