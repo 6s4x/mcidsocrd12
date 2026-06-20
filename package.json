@@ -1,13 +1,10 @@
 {
-  "name": "railway-mineflayer-bots",
+  "name": "your-app-name",
   "version": "1.0.0",
-  "description": "3 Mineflayer bots for Railway",
+  "description": "",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
   "dependencies": {
-    "mineflayer": "^4.20.1",
+    "mineflayer": "^4.24.0",
     "ws": "^8.18.0"
   }
 }
