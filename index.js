@@ -11,7 +11,7 @@ let activeBots = [];
 // Generate an RSA key on-the-fly for the SSH server (No external files needed)
 const { privateKey } = crypto.generateKeyPairSync('rsa', {
   modulusLength: 2048,
-  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+  privateKeyEncoding: { type: 'pkcs1', format: 'pem' } // <-- Changed 'pkcs8' to 'pkcs1'
 });
 
 // --- Bot Management ---
