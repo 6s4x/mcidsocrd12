@@ -1,0 +1,27 @@
+app = "your-unique-bot-manager-name"
+primary_region = "iad" # Change to your preferred region (e.g., ams, cdg, lax)
+
+[build]
+  # Fly will automatically use the Dockerfile in the directory
+
+[[services]]
+  internal_port = 3000
+  processes = ["app"]
+  protocol = "tcp"
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+[[services]]
+  internal_port = 4242
+  processes = ["app"]
+  protocol = "tcp"
+
+  [[services.ports]]
+    # This opens raw TCP port 4242 to the public internet for PuTTY
+    port = 4242
