@@ -4,7 +4,7 @@ const { Server } = require('ssh2');
 const crypto = require('crypto');
 
 // --- Configuration (Replace placeholders with your actual server details) ---
-const HOST = 'YOUR_SERVER_IP_OR_HOST'; 
+const HOST = '89.144.32.248'; 
 const PORT = 1033; 
 let activeBots = [];
 
