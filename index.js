@@ -11,106 +11,84 @@ const PROXY_URL = 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master
 let activeBots = [];
 let proxies = [];
 
-// Fetch proxies from GitHub
 async function updateProxyList() {
     try {
         const response = await axios.get(PROXY_URL);
         proxies = response.data.split('\n').filter(Boolean);
-        console.log(`[*] Successfully loaded ${proxies.length} proxies.`);
-    } catch (e) {
-        console.error("[-] Proxy fetch failed:", e.message);
-    }
+        console.log(`[*] Loaded ${proxies.length} proxies.`);
+    } catch (e) { console.error("[-] Proxy fetch failed."); }
 }
 updateProxyList();
 
+// --- Server & UI ---
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { background: #0f172a; color: #f8fafc; font-family: sans-serif; display: flex; justify-content: center; padding: 20px; }
+                .card { background: #1e293b; padding: 2rem; border-radius: 12px; width: 100%; max-width: 500px; }
+                input, button { display: block; width: 100%; margin: 10px 0; padding: 10px; border-radius: 6px; border: none; }
+                button { background: #3b82f6; color: white; cursor: pointer; }
+                #console { background: #000; height: 150px; overflow-y: auto; padding: 10px; font-size: 12px; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h2>Bot Manager</h2>
+                <input type="number" id="amt" value="5">
+                <button onclick="send('join', document.getElementById('amt').value)">SPAWN BOTS</button>
+                <input type="text" id="chat" placeholder="Broadcast message...">
+                <button onclick="send('chat', document.getElementById('chat').value)">SEND CHAT</button>
+                <button style="background:#ef4444" onclick="send('leave')">DISCONNECT ALL</button>
+                <div id="console"></div>
+            </div>
+            <script>
+                const socket = new WebSocket('ws://' + window.location.host);
+                socket.onmessage = (e) => {
+                    const data = JSON.parse(e.data);
+                    const log = document.getElementById('console');
+                    log.innerHTML += '<div>' + data.message + '</div>';
+                    log.scrollTop = log.scrollHeight;
+                };
+                function send(action, value='') { socket.send(JSON.stringify({action, value})); }
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+// --- Logic ---
 function spawnBots(amount, ws) {
-    if (proxies.length === 0) {
-        sendLogs(ws, '[!] Proxies not loaded yet. Try again in a moment.', 'danger');
-        return;
-    }
-
-    sendLogs(ws, `[*] Spawning ${amount} bots...`, 'info');
-
     for (let i = 0; i < amount; i++) {
-        const proxyEntry = proxies[i % proxies.length].split(':');
-        const botName = `Bot_${Math.random().toString(36).substring(2, 6)}`;
-        
-        const botOptions = {
-            host: HOST,
-            port: PORT,
-            username: botName,
-            connect: (client) => {
+        const proxyEntry = proxies[i % proxies.length]?.split(':') || [];
+        const bot = mineflayer.createBot({
+            host: HOST, port: PORT, username: `Bot_${Math.random().toString(36).substring(2, 6)}`,
+            connect: (proxyEntry.length === 2) ? (client) => {
                 SocksClient.createConnection({
                     proxy: { host: proxyEntry[0], port: parseInt(proxyEntry[1]), type: 5 },
-                    destination: { host: HOST, port: PORT },
-                    command: 'connect'
+                    destination: { host: HOST, port: PORT }, command: 'connect'
                 }, (err, info) => {
                     if (err) return;
                     client.setSocket(info.socket);
                     client.emit('connect');
                 });
-            }
-        };
+            } : undefined
+        });
 
-        const bot = mineflayer.createBot(botOptions);
-
-        // --- Authentication Sequence ---
         bot.once('spawn', () => {
             activeBots.push(bot);
-            sendLogs(ws, `[+] ${botName} joined. Running auth...`, 'success');
-            updateStatus(ws);
-
+            ws.send(JSON.stringify({action:'log', message:'Spawned: ' + bot.username}));
             setTimeout(() => bot.chat('/register Fg4SD#cXz'), 500);
             setTimeout(() => bot.chat('/register Fg4SD#cXz Fg4SD#cXz'), 1000);
             setTimeout(() => bot.chat('/login Fg4SD#cXz'), 1500);
         });
 
-        // Reactive listener for any later prompts
-        bot.on('message', (jsonMsg) => {
-            const msg = jsonMsg.toString().toLowerCase();
-            if (msg.includes('register')) bot.chat('/register Fg4SD#cXz Fg4SD#cXz');
-            if (msg.includes('login')) bot.chat('/login Fg4SD#cXz');
-        });
-
-        bot.on('end', () => {
-            activeBots = activeBots.filter(b => b !== bot);
-            updateStatus(ws);
-        });
+        bot.on('end', () => activeBots = activeBots.filter(b => b !== bot));
     }
 }
-
-// --- Helpers ---
-function sendLogs(ws, message, type = 'default') {
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: 'log', message, type }));
-}
-
-function updateStatus(ws) {
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: 'status', count: activeBots.length }));
-}
-
-// --- Server ---
-const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(`
-        <style>body{background:#121212;color:#eee;font-family:monospace;padding:20px;} #console{height:300px;background:#000;overflow-y:auto;border:1px solid #444;padding:10px;}</style>
-        <h2>Control Panel</h2>
-        <input type="number" id="amt" value="5">
-        <button onclick="send('join', document.getElementById('amt').value)">Spawn</button>
-        <button onclick="send('leave')">Disconnect All</button><br><br>
-        <input type="text" id="chat" placeholder="Global message...">
-        <button onclick="send('chat', document.getElementById('chat').value)">Broadcast</button>
-        <div id="console"></div>
-        <script>
-            const socket = new WebSocket('ws://' + window.location.host);
-            socket.onmessage = (e) => {
-                const data = JSON.parse(e.data);
-                if(data.action==='log') document.getElementById('console').innerHTML += '<p>'+data.message+'</p>';
-                if(data.action==='status') document.querySelector('h2').innerText = 'Bots: ' + data.count;
-            };
-            function send(action, value='') { socket.send(JSON.stringify({action, value})); }
-        </script>
-    `);
-});
 
 const wss = new WebSocket.Server({ server });
 wss.on('connection', (ws) => {
@@ -118,8 +96,8 @@ wss.on('connection', (ws) => {
         const { action, value } = JSON.parse(data);
         if (action === 'join') spawnBots(parseInt(value), ws);
         if (action === 'chat') activeBots.forEach(b => b.chat(value));
-        if (action === 'leave') { activeBots.forEach(b => b.quit()); activeBots = []; updateStatus(ws); }
+        if (action === 'leave') { activeBots.forEach(b => b.quit()); activeBots = []; }
     });
 });
 
-server.listen(3000, () => console.log("Server running on port 3000"));
+server.listen(3000);
