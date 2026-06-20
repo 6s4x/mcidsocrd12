@@ -161,7 +161,7 @@ Type \x1b[33mhelp\x1b[0m for commands.
   });
 });
 
-const sshPort = process.env.SSH_PORT || 4242;
+const sshPort = process.env.SSH_PORT || 5252;
 sshServer.listen(sshPort, () => {
   console.log(`SSH Control Server running on port ${sshPort}`);
 });
