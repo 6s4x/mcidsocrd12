@@ -1,61 +1,34 @@
 const mineflayer = require('mineflayer');
 const http = require('http');
 const WebSocket = require('ws');
-const { SocksClient } = require('socks');
-const axios = require('axios');
 
 const HOST = '89.144.32.248';
 const PORT = 1033;
-const PROXY_URL = 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt';
-
 let activeBots = [];
-let proxies = [];
 
-async function updateProxyList() {
-    try {
-        const response = await axios.get(PROXY_URL);
-        proxies = response.data.split('\n').filter(Boolean);
-        console.log(`[*] Loaded ${proxies.length} proxies.`);
-    } catch (e) { console.error("[-] Failed to fetch proxies."); }
-}
-updateProxyList();
-
+// --- Helper: Delay ---
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function spawnBots(amount, ws) {
     const BATCH_SIZE = 5;
-    const BATCH_DELAY = 2000;
-    const INDIVIDUAL_DELAY = 700;
+    const BATCH_DELAY = 1000;
+    const INDIVIDUAL_DELAY = 300; // Faster direct connection
 
     for (let i = 0; i < amount; i += BATCH_SIZE) {
         ws.send(JSON.stringify({action:'log', message:`[*] Starting batch ${i / BATCH_SIZE + 1}...`}));
         
         for (let j = 0; j < BATCH_SIZE && (i + j) < amount; j++) {
-            const proxyEntry = proxies[(i + j) % proxies.length]?.split(':') || [];
-            
-const bot = mineflayer.createBot({
+            const bot = mineflayer.createBot({
                 host: HOST, 
                 port: PORT,
-                version: '1.21.5', // Explicitly set to 1.21.5
+                version: '1.21.5',
                 username: `B_${Math.floor(Math.random()*9999)}`,
-                hideErrors: true, 
-                connect: (proxyEntry.length === 2) ? (client) => {
-                    SocksClient.createConnection({
-                        proxy: { host: proxyEntry[0], port: parseInt(proxyEntry[1]), type: 5 },
-                        destination: { host: HOST, port: PORT }, 
-                        command: 'connect', 
-                        timeout: 5000
-                    }, (err, info) => {
-                        if (err) return;
-                        client.setSocket(info.socket);
-                        client.emit('connect');
-                    });
-                } : undefined
+                hideErrors: true
             });
 
             bot.once('spawn', () => {
                 activeBots.push(bot);
-                ws.send(JSON.stringify({action:'log', message:`[+] ${bot.username} joined.`}));
+                ws.send(JSON.stringify({action:'log', message:`[+] ${bot.username} connected.`}));
                 setTimeout(() => bot.chat('/register Fg4SD#cXz Fg4SD#cXz'), 500);
                 setTimeout(() => bot.chat('/login Fg4SD#cXz'), 1000);
             });
@@ -67,6 +40,7 @@ const bot = mineflayer.createBot({
     }
 }
 
+// --- UI Server ---
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`
@@ -78,7 +52,7 @@ const server = http.createServer((req, res) => {
             #console{height:200px; background:#000; overflow-y:auto; font-family:monospace; font-size:11px; padding:10px; border-radius:6px;}
         </style></head><body>
             <div class="card">
-                <h2>Bot Dashboard</h2>
+                <h2>Direct Bot Manager</h2>
                 <input type="number" id="amt" value="5">
                 <button onclick="send('join', document.getElementById('amt').value)">SPAWN BATCH</button>
                 <input type="text" id="chat" placeholder="Broadcast message...">
