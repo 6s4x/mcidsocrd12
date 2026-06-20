@@ -3,12 +3,12 @@ const http = require('http');
 const { Server } = require('ssh2');
 const crypto = require('crypto');
 
-// --- Configuration ---
-const HOST = '89.144.32.248';
-const PORT = 1033;
+// --- Configuration (Replace placeholders with your actual server details) ---
+const HOST = 'YOUR_SERVER_IP_OR_HOST'; 
+const PORT = 1033; 
 let activeBots = [];
 
-// Generate an RSA key on-the-fly for the SSH server 
+// Generate RSA key for the SSH server
 const { privateKey } = crypto.generateKeyPairSync('rsa', {
   modulusLength: 2048,
   privateKeyEncoding: { type: 'pkcs1', format: 'pem' } 
@@ -19,6 +19,8 @@ function spawnBots(amount, stream) {
   stream.write(`\r\n\x1b[33m[*] Attempting to join ${amount} bots to ${HOST}:${PORT}...\x1b[0m\r\n`);
   
   for (let i = 0; i < amount; i++) {
+    // ADJUST SPEED HERE: Changed from 2000ms to 500ms for faster sequential entry.
+    // Reduce further (e.g., 200) if your server's connection-throttle allows it.
     setTimeout(() => {
       const botName = `Bot_${Math.random().toString(36).substring(2, 6)}`;
       const bot = mineflayer.createBot({
@@ -27,18 +29,32 @@ function spawnBots(amount, stream) {
         username: botName
       });
 
-      bot.on('spawn', () => {
+      // Use .once to ensure the login sequence only fires on the initial join
+      bot.once('spawn', () => {
         stream.write(`\r\n\x1b[32m[+] ${botName} spawned successfully!\x1b[0m\r\n`);
         activeBots.push(bot);
+
+        // Auto-run authentication commands with slight delays to avoid spam filters
+        setTimeout(() => {
+          if (bot.isValid) bot.chat('/register Fg4SD#cXz');
+        }, 500);
+
+        setTimeout(() => {
+          if (bot.isValid) bot.chat('/register Fg4SD#cXz Fg4SD#cXz');
+        }, 1000);
+
+        setTimeout(() => {
+          if (bot.isValid) bot.chat('/login Fg4SD#cXz');
+        }, 1500);
       });
 
       bot.on('end', () => {
         activeBots = activeBots.filter(b => b.username !== bot.username);
       });
 
-      bot.on('error', () => { /* Prevent crash if bot gets kicked immediately */ });
+      bot.on('error', () => { /* Handle silent errors */ });
 
-    }, i * 2000); 
+    }, i * 500); 
   }
 }
 
@@ -48,17 +64,14 @@ const sshServer = new Server({
 }, (client) => {
   console.log('Client connected to SSH!');
 
-  // FIX 1: Catch client socket errors so an abrupt PuTTY disconnect never crashes the app
   client.on('error', (err) => {
     console.log(`[SSH] Client connection error caught: ${err.message}`);
   });
 
   client.on('authentication', (ctx) => {
-    // You asked for root:root!
     if (ctx.method === 'password' && ctx.username === 'root' && ctx.password === 'root') {
       ctx.accept();
     } else {
-      // FIX 2: Explicitly tell PuTTY that 'password' is the supported login method
       ctx.reject(['password']);
     }
   });
@@ -75,7 +88,6 @@ const sshServer = new Server({
         const stream = accept();
         let inputBuffer = '';
 
-        // Design Banner
         const banner = `\r
 \x1b[36m
   ██████╗ ██████╗ ████████╗███╗   ██╗███████╗████████╗
@@ -149,8 +161,7 @@ Type \x1b[33mhelp\x1b[0m for commands.
   });
 });
 
-// Reverted back to your original setup without 0.0.0.0
-const sshPort = process.env.SSH_PORT || 6767;
+const sshPort = process.env.SSH_PORT || 4242;
 sshServer.listen(sshPort, () => {
   console.log(`SSH Control Server running on port ${sshPort}`);
 });
