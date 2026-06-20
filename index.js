@@ -46,7 +46,9 @@ const server = http.createServer((req, res) => {
                 <div id="console"></div>
             </div>
             <script>
-                const socket = new WebSocket('ws://' + window.location.host);
+                // To this (handles both http and https automatically):
+const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+const socket = new WebSocket(protocol + window.location.host);
                 socket.onmessage = (e) => {
                     const data = JSON.parse(e.data);
                     const log = document.getElementById('console');
